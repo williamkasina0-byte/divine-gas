@@ -1,0 +1,8 @@
+{
+  "name": "Divine Gas",
+  "description": "Premium cooking gas delivery service for Ruai residents .\nFast, reliable and quality",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}

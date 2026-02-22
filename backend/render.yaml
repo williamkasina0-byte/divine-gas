@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: divine-gas-backend
+    env: node
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3002
+      - key: DATABASE_URL
+        value: ${DATABASE_URL}
+      - key: JWT_SECRET
+        value: ${JWT_SECRET}
+        generateValue: true
+      - key: MPESA_CONSUMER_KEY
+        value: ${MPESA_CONSUMER_KEY}
+      - key: MPESA_CONSUMER_SECRET
+        value: ${MPESA_CONSUMER_SECRET}
+      - key: MPESA_SHORT_CODE
+        value: ${MPESA_SHORT_CODE}
+      - key: MPESA_PASSKEY
+        value: ${MPESA_PASSKEY}

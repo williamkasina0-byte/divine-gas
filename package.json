@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "tunnel": "node tunnel.js",
-    "start:all": "node start-all.js"
+    "start:all": "node start-all.js",
+    "install:backend": "cd backend && npm install",
+    "start": "cd backend && npm start"
   },
   "dependencies": {
     "lucide-react": "^0.564.0",

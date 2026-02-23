@@ -515,6 +515,123 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Manual seed endpoint - call this to seed the database
+app.post('/api/admin/seed', async (req, res) => {
+    const db = await getDb();
+    try {
+        // Seed Admin User
+        const adminExists = await executeGet(db, 
+            isPostgres ? 'SELECT * FROM users WHERE username = $1' : 'SELECT * FROM users WHERE username = ?',
+            ['admin']
+        );
+        if (!adminExists) {
+            const hash = await bcrypt.hash('admin123', 10);
+            await executeRun(db,
+                isPostgres 
+                    ? 'INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id'
+                    : 'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
+                ['admin', hash, 'admin']
+            );
+            console.log("Admin user created");
+        }
+
+        // Seed Initial Products
+        const productsCount = await executeGet(db, 
+            isPostgres ? 'SELECT COUNT(*) as count FROM products' : 'SELECT count(*) as count FROM products'
+        );
+        if (parseInt(productsCount?.count || 0) < 16) {
+            const initialProducts = [
+                { id: '1', brand: 'Pro-Gas', size: '6kg', price: 1100, deposit: 3400, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=400' },
+                { id: '2', brand: 'Pro-Gas', size: '13kg', price: 2500, deposit: 6000, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=401' },
+                { id: '3', brand: 'K-Gas', size: '6kg', price: 1100, deposit: 3400, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=402' },
+                { id: '4', brand: 'K-Gas', size: '13kg', price: 2500, deposit: 6000, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=403' },
+                { id: '5', brand: 'Total', size: '6kg', price: 1200, deposit: 3500, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=404' },
+                { id: '6', brand: 'Total', size: '13kg', price: 2600, deposit: 6100, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=405' },
+                { id: '7', brand: 'Rubis', size: '6kg', price: 1150, deposit: 3450, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=406' },
+                { id: '8', brand: 'Rubis', size: '13kg', price: 2550, deposit: 6050, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=407' },
+                { id: '9', brand: 'Shell', size: '6kg', price: 1100, deposit: 3400, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=408' },
+                { id: '10', brand: 'Shell', size: '13kg', price: 2500, deposit: 6000, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=409' },
+                { id: '11', brand: 'Gas', size: '6kg', price: 1050, deposit: 3300, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=410' },
+                { id: '12', brand: 'Gas', size: '13kg', price: 2400, deposit: 5900, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=411' },
+                { id: '13', brand: 'Flexi-Gas', size: '6kg', price: 1000, deposit: 3200, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=412' },
+                { id: '14', brand: 'Flexi-Gas', size: '13kg', price: 2300, deposit: 5800, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=413' },
+                { id: '15', brand: 'King Gas', size: '6kg', price: 1080, deposit: 3350, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=414' },
+                { id: '16', brand: 'King Gas', size: '13kg', price: 2450, deposit: 5950, image: 'https://images.unsplash.com/photo-1598970434722-5c4c4421e118?auto=format&fit=crop&q=80&w=415' }
+            ];
+
+            for (const p of initialProducts) {
+                await executeRun(db,
+                    isPostgres
+                        ? 'INSERT INTO products (id, brand, size, price, deposit, image) VALUES ($1, $2, $3, $4, $5, $6)'
+                        : 'INSERT INTO products (id, brand, size, price, deposit, image) VALUES (?, ?, ?, ?, ?, ?)',
+                    [p.id, p.brand, p.size, p.price, p.deposit, p.image]
+                );
+            }
+            console.log("Products seeded");
+        }
+
+        // Seed Settings
+        const settingsCount = await executeGet(db,
+            isPostgres ? 'SELECT COUNT(*) as count FROM settings' : 'SELECT count(*) as count FROM settings'
+        );
+        if (parseInt(settingsCount?.count || 0) === 0) {
+            const defaultSettings = [
+                { key: 'site_name', value: 'DIVINE GAS' },
+                { key: 'phone', value: '0795556620' },
+                { key: 'whatsapp', value: '254795556620' },
+                { key: 'operating_hours', value: 'Open Mon-Sun: 8am - 10pm' },
+                { key: 'delivery_guarantee', value: 'Free 15-Min Delivery' }
+            ];
+            for (const s of defaultSettings) {
+                await executeRun(db,
+                    isPostgres
+                        ? 'INSERT INTO settings (key, value) VALUES ($1, $2)'
+                        : 'INSERT INTO settings (key, value) VALUES (?, ?)',
+                    [s.key, s.value]
+                );
+            }
+            console.log("Settings seeded");
+        }
+
+        res.json({ success: true, message: "Database seeded successfully" });
+    } catch (e) {
+        console.error("Seed error:", e);
+        res.status(500).json({ error: "Failed to seed database: " + e.message });
+    }
+});
+
+// Import products from JSON file - admin endpoint
+app.post('/api/admin/import-products', authenticateToken, async (req, res) => {
+    const db = await getDb();
+    if (req.user.role !== 'admin') return res.status(403).json({ error: "Forbidden" });
+
+    try {
+        const { products } = req.body;
+        
+        if (!products || !Array.isArray(products)) {
+            return res.status(400).json({ error: "Invalid products format. Expected array of products." });
+        }
+
+        let importedCount = 0;
+        for (const p of products) {
+            if (p.id && p.brand && p.size && p.price !== undefined && p.deposit !== undefined) {
+                await executeRun(db,
+                    isPostgres
+                        ? 'INSERT INTO products (id, brand, size, price, deposit, image) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE SET brand = $2, size = $3, price = $4, deposit = $5, image = $6'
+                        : 'INSERT OR REPLACE INTO products (id, brand, size, price, deposit, image) VALUES (?, ?, ?, ?, ?, ?)',
+                    [p.id, p.brand, p.size, p.price, p.deposit, p.image || '']
+                );
+                importedCount++;
+            }
+        }
+
+        res.json({ success: true, message: `Successfully imported ${importedCount} products` });
+    } catch (e) {
+        console.error("Import error:", e);
+        res.status(500).json({ error: "Failed to import products: " + e.message });
+    }
+});
+
 app.listen(port, '0.0.0.0', () => {
     console.log(`Backend server running on port ${port} (Accessible on LAN)`);
 });

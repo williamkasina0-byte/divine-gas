@@ -170,13 +170,57 @@ const navItems = [
                                     <h3 className="text-3xl font-black mb-2">Inventory Management</h3>
                                     <p className="text-indigo-300 font-bold text-sm tracking-tight">Modify your digital storefront catalog for the Ruai delivery zone.</p>
                                 </div>
-                                <button
-                                    onClick={onAddNew}
-                                    className="bg-indigo-600 text-white px-10 py-5 rounded-[24px] font-black hover:bg-indigo-500 hover:scale-105 transition-all flex items-center gap-3 shadow-2xl shadow-indigo-500/40 relative z-10"
-                                >
-                                    <Package className="w-6 h-6" />
-                                    CREATE PRODUCT
-                                </button>
+                                <div className="flex gap-4 relative z-10">
+                                    <label className="bg-emerald-600 text-white px-6 py-5 rounded-[24px] font-black hover:bg-emerald-500 hover:scale-105 transition-all flex items-center gap-3 cursor-pointer shadow-2xl shadow-emerald-500/40">
+                                        <Package className="w-6 h-6" />
+                                        IMPORT JSON
+                                        <input 
+                                            type="file" 
+                                            accept=".json" 
+                                            className="hidden"
+                                            onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (!file) return;
+                                                
+                                                try {
+                                                    const text = await file.text();
+                                                    const products = JSON.parse(text);
+                                                    
+                                                    if (!Array.isArray(products)) {
+                                                        alert("Invalid JSON format. Expected an array of products.");
+                                                        return;
+                                                    }
+                                                    
+                                                    const response = await fetch('/api/admin/import-products', {
+                                                        method: 'POST',
+                                                        headers: {
+                                                            'Content-Type': 'application/json',
+                                                            'Authorization': `Bearer ${token}`
+                                                        },
+                                                        body: JSON.stringify({ products })
+                                                    });
+                                                    
+                                                    const result = await response.json();
+                                                    if (result.success) {
+                                                        alert(`Successfully imported ${result.message}`);
+                                                        window.location.reload();
+                                                    } else {
+                                                        alert("Failed to import: " + result.error);
+                                                    }
+                                                } catch (err) {
+                                                    alert("Error reading file: " + err.message);
+                                                }
+                                            }}
+                                        />
+                                    </label>
+                                    <button
+                                        onClick={onAddNew}
+                                        className="bg-indigo-600 text-white px-10 py-5 rounded-[24px] font-black hover:bg-indigo-500 hover:scale-105 transition-all flex items-center gap-3 shadow-2xl shadow-indigo-500/40"
+                                    >
+                                        <Package className="w-6 h-6" />
+                                        CREATE PRODUCT
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="bg-white rounded-[40px] border border-gray-100 shadow-sm overflow-hidden">

@@ -35,7 +35,6 @@ async function getDb() {
   return db;
 }
 
-
 async function initializeDatabase() {
   const db = await getDb();
 

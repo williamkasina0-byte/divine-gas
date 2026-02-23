@@ -82,7 +82,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose, type })
           
           <div className="pt-8 border-t border-slate-100">
             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center">
-              Last Updated: March 2024 • Divine Gas Ruai Hub
+Last Updated: March 2026 • Divine Gas Ruai Hub
             </p>
           </div>
         </div>

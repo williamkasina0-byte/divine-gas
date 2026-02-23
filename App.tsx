@@ -399,7 +399,7 @@ const App: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4">
           {/* Footer content unchanged */}
           <div className="pt-8 border-t border-slate-800 flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-medium">
-            <p>© 2024 Divine Express Limited. All Rights Reserved.</p>
+<p>© 2026 Divine Express Limited. All Rights Reserved.</p>
             <div className="flex gap-6">
               <span className="flex items-center gap-1"><CheckCircle2 className="w-3 h-3 text-green-500" /> ERC Certified</span>
               <span className="flex items-center gap-1"><CheckCircle2 className="w-3 h-3 text-green-500" /> KEBS Standard</span>

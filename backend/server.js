@@ -186,6 +186,9 @@ app.delete('/api/products/:id', authenticateToken, async (req, res) => {
 });
 
 // --- ORDERS ROUTES ---
+// Import notification service
+const notificationService = require('./notifications');
+
 app.post('/api/orders', async (req, res) => {
     const order = req.body;
     const db = await getDb();
@@ -198,14 +201,17 @@ app.post('/api/orders', async (req, res) => {
         const customerName = order.customer_name || order.name || 'Guest';
         const phone = order.phone || '';
         const address = order.address || '';
+        const createdAt = new Date().toISOString();
 
         await executeRun(db,
             isPostgres
                 ? 'INSERT INTO orders (id, user_id, customer_name, phone, address, total_amount, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)'
                 : 'INSERT INTO orders (id, user_id, customer_name, phone, address, total_amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [orderId, userId, customerName, phone, address, order.total, order.status || 'PENDING', new Date().toISOString()]
+            [orderId, userId, customerName, phone, address, order.total, order.status || 'PENDING', createdAt]
         );
 
+        // Store items with product details for notification
+        const orderItems = [];
         for (const item of order.items) {
             await executeRun(db,
                 isPostgres
@@ -213,7 +219,40 @@ app.post('/api/orders', async (req, res) => {
                     : 'INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase, purchase_type) VALUES (?, ?, ?, ?, ?)',
                 [orderId, item.id, item.quantity, item.finalPrice, item.purchaseType]
             );
+            
+            // Get product details for notification
+            const product = await executeGet(db,
+                isPostgres ? 'SELECT * FROM products WHERE id = $1' : 'SELECT * FROM products WHERE id = ?',
+                [item.id]
+            );
+            orderItems.push({
+                ...item,
+                brand: product?.brand || 'Unknown',
+                size: product?.size || 'Unknown'
+            });
         }
+
+        // Send notifications (non-blocking)
+        const orderWithDetails = {
+            id: orderId,
+            name: customerName,
+            phone: phone,
+            address: address,
+            total: order.total,
+            items: orderItems,
+            paymentMethod: order.paymentMethod,
+            created_at: createdAt
+        };
+
+        // Notify admin
+        notificationService.notifyAdminOfOrder(orderWithDetails).catch(err => 
+            console.error('Failed to notify admin:', err)
+        );
+
+        // Notify customer
+        notificationService.notifyCustomerOfOrder(orderWithDetails).catch(err => 
+            console.error('Failed to notify customer:', err)
+        );
 
         res.json({ success: true, orderId: orderId });
     } catch (e) {

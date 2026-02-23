@@ -8,7 +8,7 @@ import { ProductModal } from './components/ProductModal';
 import { TrackingOverlay } from './components/TrackingOverlay';
 import { CoverageModal } from './components/CoverageModal';
 import { LegalModal } from './components/LegalModal';
-import { fetchProducts, saveProduct, deleteProduct, placeOrder } from './services/api';
+import { fetchProducts, saveProduct, deleteProduct, placeOrder, logUserActivity } from './services/api';
 import { GasProduct, OrderItem, OrderStatus } from './types';
 import { RotateCcw, CheckCircle2, Phone, MessageSquare, Loader2, Save, MapPin, Clock, LogOut, User, Shield, Package, ShoppingBag } from 'lucide-react';
 import { AuthModal } from './components/AuthModal';
@@ -120,10 +120,17 @@ const App: React.FC = () => {
       console.log("Switching to Admin Portal view...");
     }
     setAuthModalOpen(false);
-    console.log("------------------------------------");
+console.log("------------------------------------");
+    
+    // Log user login activity
+    logUserActivity(userData.id, userData.username, 'USER_LOGIN', `User logged in as ${roleString}`).catch(console.error);
   };
 
-  const handleLogout = () => {
+const handleLogout = () => {
+    // Log user logout activity before clearing user data
+    if (user) {
+      logUserActivity(user.id, user.username, 'USER_LOGOUT', 'User logged out').catch(console.error);
+    }
     setUser(null);
     setToken(null);
     setIsAdmin(false);
@@ -240,7 +247,10 @@ const App: React.FC = () => {
 
       // 3. Save Order
       const result = await placeOrder(orderData);
-      if (result.success) {
+if (result.success) {
+        // Log order activity
+logUserActivity(user?.id || 0, user?.username || 'guest', 'ORDER_PLACED', `Order placed with ${cart.length} items, total: KES ${orderData.total}`).catch(console.error);
+        
         setActiveOrder({ ...orderData, id: result.orderId });
         setCart([]);
         setIsCartOpen(false);

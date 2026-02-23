@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { getDb, initializeDatabase } = require('./database');
+const { getDb, initializeDatabase, logActivity } = require('./database');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
@@ -9,11 +9,50 @@ const app = express();
 const port = process.env.PORT || 3002;
 const JWT_SECRET = process.env.JWT_SECRET || 'divine-secret-key-change-this';
 
+// Check if using PostgreSQL
+const isPostgres = process.env.DATABASE_URL && process.env.NODE_ENV === 'production';
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 // Initialize DB
 initializeDatabase().catch(err => console.error("DB Init Failed:", err));
+
+// Helper function to execute queries based on database type
+async function executeQuery(db, sql, params = []) {
+    if (isPostgres) {
+        const result = await db.query(sql, params);
+        return result.rows;
+    } else {
+        // SQLite
+        if (sql.trim().toLowerCase().startsWith('select')) {
+            if (sql.includes('count(*)')) {
+                return await db.get(sql, params);
+            }
+            return await db.all(sql, params);
+        } else {
+            return await db.run(sql, params);
+        }
+    }
+}
+
+async function executeGet(db, sql, params = []) {
+    if (isPostgres) {
+        const result = await db.query(sql, params);
+        return result.rows[0] || null;
+    } else {
+        return await db.get(sql, params);
+    }
+}
+
+async function executeRun(db, sql, params = []) {
+    if (isPostgres) {
+        const result = await db.query(sql, params);
+        return { lastID: result.rows[0]?.id || 0, changes: result.rowCount };
+    } else {
+        return await db.run(sql, params);
+    }
+}
 
 // Middleware to authenticate token
 const authenticateToken = (req, res, next) => {
@@ -35,7 +74,10 @@ app.post('/api/auth/login', async (req, res) => {
     const db = await getDb();
 
     try {
-        const user = await db.get('SELECT * FROM users WHERE username = ?', username);
+        const user = await executeGet(db, 
+            isPostgres ? 'SELECT * FROM users WHERE username = $1' : 'SELECT * FROM users WHERE username = ?', 
+            [username]
+        );
         if (!user) return res.status(400).json({ error: "User not found" });
 
         const validPassword = await bcrypt.compare(password, user.password_hash);
@@ -64,18 +106,23 @@ app.post('/api/auth/register', async (req, res) => {
     const db = await getDb();
 
     try {
-        const existingUser = await db.get('SELECT * FROM users WHERE username = ?', username);
+        const existingUser = await executeGet(db,
+            isPostgres ? 'SELECT * FROM users WHERE username = $1' : 'SELECT * FROM users WHERE username = ?',
+            [username]
+        );
         if (existingUser) {
             return res.status(400).json({ error: "Username already exists" });
         }
 
         const hash = await bcrypt.hash(password, 10);
-        const result = await db.run(
-            'INSERT INTO users (username, password_hash, role, full_name, phone) VALUES (?, ?, ?, ?, ?)',
-            username, hash, 'customer', fullName, phone
+        const result = await executeRun(db,
+            isPostgres 
+                ? 'INSERT INTO users (username, password_hash, role, full_name, phone) VALUES ($1, $2, $3, $4, $5) RETURNING id'
+                : 'INSERT INTO users (username, password_hash, role, full_name, phone) VALUES (?, ?, ?, ?, ?)',
+            [username, hash, 'customer', fullName, phone]
         );
 
-        const userId = result.lastID;
+        const userId = isPostgres ? result[0]?.id : result.lastID;
         const token = jwt.sign({ id: userId, username, role: 'customer' }, JWT_SECRET, { expiresIn: '24h' });
 
         res.json({
@@ -97,8 +144,13 @@ app.post('/api/auth/register', async (req, res) => {
 // --- PRODUCTS ROUTES ---
 app.get('/api/products', async (req, res) => {
     const db = await getDb();
-    const products = await db.all('SELECT * FROM products');
-    res.json(products);
+    try {
+        const products = await executeQuery(db, 'SELECT * FROM products');
+        res.json(products);
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: "Failed to fetch products" });
+    }
 });
 
 app.post('/api/products', authenticateToken, async (req, res) => {
@@ -106,9 +158,11 @@ app.post('/api/products', authenticateToken, async (req, res) => {
     const db = await getDb();
 
     try {
-        await db.run(
-            'INSERT OR REPLACE INTO products (id, brand, size, price, deposit, image) VALUES (?, ?, ?, ?, ?, ?)',
-            id, brand, size, price, deposit, image
+        await executeRun(db,
+            isPostgres
+                ? 'INSERT INTO products (id, brand, size, price, deposit, image) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE SET brand = $2, size = $3, price = $4, deposit = $5, image = $6'
+                : 'INSERT OR REPLACE INTO products (id, brand, size, price, deposit, image) VALUES (?, ?, ?, ?, ?, ?)',
+            [id, brand, size, price, deposit, image]
         );
         res.json({ success: true });
     } catch (e) {
@@ -121,7 +175,10 @@ app.delete('/api/products/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const db = await getDb();
     try {
-        await db.run('DELETE FROM products WHERE id = ?', id);
+        await executeRun(db,
+            isPostgres ? 'DELETE FROM products WHERE id = $1' : 'DELETE FROM products WHERE id = ?',
+            [id]
+        );
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: "Failed to delete" });
@@ -134,20 +191,22 @@ app.post('/api/orders', async (req, res) => {
     const db = await getDb();
 
     try {
-        // Generate ID if not present
         const orderId = order.id || Math.random().toString(36).substr(2, 9);
-        // Link to user if userId is provided
         const userId = order.userId || null;
 
-        await db.run(
-            'INSERT INTO orders (id, user_id, customer_name, phone, address, total_amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            orderId, userId, order.name, order.phone, order.address, order.total, order.status, new Date().toISOString()
+        await executeRun(db,
+            isPostgres
+                ? 'INSERT INTO orders (id, user_id, customer_name, phone, address, total_amount, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)'
+                : 'INSERT INTO orders (id, user_id, customer_name, phone, address, total_amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [orderId, userId, order.name, order.phone, order.address, order.total, order.status, new Date().toISOString()]
         );
 
         for (const item of order.items) {
-            await db.run(
-                'INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase, purchase_type) VALUES (?, ?, ?, ?, ?)',
-                orderId, item.id, item.quantity, item.finalPrice, item.purchaseType
+            await executeRun(db,
+                isPostgres
+                    ? 'INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase, purchase_type) VALUES ($1, $2, $3, $4, $5)'
+                    : 'INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase, purchase_type) VALUES (?, ?, ?, ?, ?)',
+                [orderId, item.id, item.quantity, item.finalPrice, item.purchaseType]
             );
         }
 
@@ -160,12 +219,14 @@ app.post('/api/orders', async (req, res) => {
 
 app.get('/api/orders', authenticateToken, async (req, res) => {
     const db = await getDb();
-    // Admin sees all orders
     if (req.user.role === 'admin') {
         try {
-            const orders = await db.all('SELECT * FROM orders ORDER BY created_at DESC');
+            const orders = await executeQuery(db, 'SELECT * FROM orders ORDER BY created_at DESC');
             for (const order of orders) {
-                order.items = await db.all('SELECT * FROM order_items WHERE order_id = ?', order.id);
+                order.items = await executeQuery(db,
+                    isPostgres ? 'SELECT * FROM order_items WHERE order_id = $1' : 'SELECT * FROM order_items WHERE order_id = ?',
+                    [order.id]
+                );
             }
             res.json(orders);
         } catch (e) {
@@ -187,7 +248,10 @@ app.patch('/api/orders/:id/status', authenticateToken, async (req, res) => {
     }
 
     try {
-        await db.run('UPDATE orders SET status = ? WHERE id = ?', status, id);
+        await executeRun(db,
+            isPostgres ? 'UPDATE orders SET status = $1 WHERE id = $2' : 'UPDATE orders SET status = ? WHERE id = ?',
+            [status, id]
+        );
         res.json({ success: true });
     } catch (e) {
         console.error(e);
@@ -199,20 +263,16 @@ app.get('/api/orders/my-orders', authenticateToken, async (req, res) => {
     const db = await getDb();
     const userId = req.user.id;
     try {
-        const orders = await db.all('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC', userId);
+        const orders = await executeQuery(db,
+            isPostgres ? 'SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC' : 'SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC',
+            [userId]
+        );
 
-        // Enhance with items if needed, but for list view usually single query or separate calls.
-        // Let's just return the orders for now. 
-        // If items are needed, the frontend might need to fetch them or we join.
-        // The Order types usually include items. Accessing items might need a join.
-        // The original GET /api/orders didn't return items either!
-        // Wait, the original code: 
-        //     const orders = await db.all('SELECT * FROM orders ORDER BY created_at DESC');
-        // It returns just the order rows.
-
-        // Let's fetch items for these orders to be helpful
         for (const order of orders) {
-            order.items = await db.all('SELECT * FROM order_items WHERE order_id = ?', order.id);
+            order.items = await executeQuery(db,
+                isPostgres ? 'SELECT * FROM order_items WHERE order_id = $1' : 'SELECT * FROM order_items WHERE order_id = ?',
+                [order.id]
+            );
         }
 
         res.json(orders);
@@ -229,18 +289,28 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: "Forbidden" });
 
     try {
-        const usersCount = await db.get('SELECT count(*) as count FROM users');
-        const ordersCount = await db.get('SELECT count(*) as count FROM orders');
-        const revenue = await db.get('SELECT sum(total_amount) as total FROM orders WHERE status != "CANCELLED"');
-        const productsCount = await db.get('SELECT count(*) as count FROM products');
+        let usersCount, ordersCount, revenue, productsCount;
+
+        if (isPostgres) {
+            usersCount = await executeGet(db, 'SELECT COUNT(*) as count FROM users');
+            ordersCount = await executeGet(db, 'SELECT COUNT(*) as count FROM orders');
+            revenue = await executeGet(db, 'SELECT COALESCE(SUM(total_amount), 0) as total FROM orders WHERE status != $1', ['CANCELLED']);
+            productsCount = await executeGet(db, 'SELECT COUNT(*) as count FROM products');
+        } else {
+            usersCount = await executeGet(db, 'SELECT count(*) as count FROM users');
+            ordersCount = await executeGet(db, 'SELECT count(*) as count FROM orders');
+            revenue = await executeGet(db, 'SELECT sum(total_amount) as total FROM orders WHERE status != ?', ['CANCELLED']);
+            productsCount = await executeGet(db, 'SELECT count(*) as count FROM products');
+        }
 
         res.json({
-            users: usersCount.count,
-            orders: ordersCount.count,
-            revenue: revenue.total || 0,
-            products: productsCount.count
+            users: parseInt(usersCount?.count || 0),
+            orders: parseInt(ordersCount?.count || 0),
+            revenue: parseInt(revenue?.total || 0),
+            products: parseInt(productsCount?.count || 0)
         });
     } catch (e) {
+        console.error(e);
         res.status(500).json({ error: "Failed to fetch stats" });
     }
 });
@@ -250,7 +320,11 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: "Forbidden" });
 
     try {
-        const users = await db.all('SELECT id, username, role, full_name, phone, created_at FROM users ORDER BY created_at DESC');
+        const users = await executeQuery(db,
+            isPostgres 
+                ? 'SELECT id, username, role, full_name, phone, created_at FROM users ORDER BY created_at DESC'
+                : 'SELECT id, username, role, full_name, phone, created_at FROM users ORDER BY created_at DESC'
+        );
         res.json(users);
     } catch (e) {
         res.status(500).json({ error: "Failed to fetch users" });
@@ -264,7 +338,10 @@ app.patch('/api/admin/users/:id/role', authenticateToken, async (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: "Forbidden" });
 
     try {
-        await db.run('UPDATE users SET role = ? WHERE id = ?', role, id);
+        await executeRun(db,
+            isPostgres ? 'UPDATE users SET role = $1 WHERE id = $2' : 'UPDATE users SET role = ? WHERE id = ?',
+            [role, id]
+        );
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: "Failed to update role" });
@@ -277,7 +354,10 @@ app.delete('/api/admin/users/:id', authenticateToken, async (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: "Forbidden" });
 
     try {
-        await db.run('DELETE FROM users WHERE id = ?', id);
+        await executeRun(db,
+            isPostgres ? 'DELETE FROM users WHERE id = $1' : 'DELETE FROM users WHERE id = ?',
+            [id]
+        );
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: "Failed to delete user" });
@@ -287,7 +367,7 @@ app.delete('/api/admin/users/:id', authenticateToken, async (req, res) => {
 app.get('/api/settings', async (req, res) => {
     const db = await getDb();
     try {
-        const settings = await db.all('SELECT * FROM settings');
+        const settings = await executeQuery(db, 'SELECT * FROM settings');
         const result = {};
         settings.forEach(s => result[s.key] = s.value);
         res.json(result);
@@ -297,17 +377,49 @@ app.get('/api/settings', async (req, res) => {
 });
 
 app.post('/api/admin/settings', authenticateToken, async (req, res) => {
-    const settings = req.body; // Expecting { key: value, ... }
+    const settings = req.body;
     const db = await getDb();
     if (req.user.role !== 'admin') return res.status(403).json({ error: "Forbidden" });
 
     try {
         for (const [key, value] of Object.entries(settings)) {
-            await db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', key, value);
+            await executeRun(db,
+                isPostgres
+                    ? 'INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2'
+                    : 'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+                [key, value]
+            );
         }
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: "Failed to update settings" });
+    }
+});
+
+// --- USER ACTIVITY ROUTES ---
+app.get('/api/admin/activity', authenticateToken, async (req, res) => {
+    const db = await getDb();
+    if (req.user.role !== 'admin') return res.status(403).json({ error: "Forbidden" });
+
+    try {
+        const activities = await executeQuery(db,
+            isPostgres
+                ? 'SELECT * FROM user_activity ORDER BY created_at DESC LIMIT 100'
+                : 'SELECT * FROM user_activity ORDER BY created_at DESC LIMIT 100'
+        );
+        res.json(activities);
+    } catch (e) {
+        res.status(500).json({ error: "Failed to fetch activity" });
+    }
+});
+
+app.post('/api/activity/log', async (req, res) => {
+    const { userId, username, action, details } = req.body;
+    try {
+        await logActivity(userId, username, action, details, req.ip, req.headers['user-agent']);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: "Failed to log activity" });
     }
 });
 
@@ -321,13 +433,11 @@ app.post('/api/pay/mpesa', async (req, res) => {
         res.json(response);
     } catch (error) {
         console.error("Payment Error:", error);
-        // Fallback for demo if keys are missing
         res.json({ ResponseCode: "0", CustomerMessage: "Simulated Request (Check Console)" });
     }
 });
 
-
-// System Instruction derived from original geminiService.ts
+// System Instruction for AI Chat
 const SYSTEM_INSTRUCTION = `
 You are 'Divine', the AI Assistant for Divine Gas, a premium cooking gas delivery service in Ruai, Kenya.
 Your ABSOLUTE PRIORITY is to communicate our unique value proposition:
@@ -349,7 +459,7 @@ Keep your tone friendly, efficient, and locally relevant to Ruai/Kenya. Use occa
 If users ask about delivery outside Ruai, politely mention we currently specialize in 15-minute ultra-fast FREE delivery specifically in Ruai and Utawala environs.
 `;
 
-// Simple keyword-based response logic to simulate AI without external dependency
+// Simple keyword-based response logic
 function getSimpleResponse(message) {
     const lowerMsg = message.toLowerCase();
 
@@ -385,7 +495,6 @@ app.post('/api/chat', (req, res) => {
             return res.status(400).json({ error: "Message is required" });
         }
 
-        // Simulate AI delay
         setTimeout(() => {
             const response = getSimpleResponse(message);
             res.json({ text: response });
@@ -398,8 +507,6 @@ app.post('/api/chat', (req, res) => {
 });
 
 app.post('/api/generate-image', (req, res) => {
-    // Return null or a placeholder since we aren't using real AI generation
-    // Ideally this would return a static image based on brand/size if we had them
     res.json({ image: null });
 });
 

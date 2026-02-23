@@ -10,7 +10,8 @@ import {
     Shield,
     ArrowLeft,
     RotateCcw,
-    Zap
+    Zap,
+    Activity
 } from 'lucide-react';
 import { AdminOrders } from './AdminOrders';
 import { ProductGrid } from './ProductGrid';
@@ -20,7 +21,8 @@ import {
     fetchSettings,
     updateSettings,
     updateUserRole,
-    deleteUser
+    deleteUser,
+    fetchUserActivity
 } from '../services/api';
 
 interface AdminPortalProps {
@@ -44,7 +46,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     onAddNew,
     onSettingsUpdate
 }) => {
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'orders' | 'users' | 'settings'>('dashboard');
+const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'orders' | 'users' | 'settings' | 'activity'>('dashboard');
     const [stats, setStats] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -62,12 +64,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         loadStats();
     }, [token]);
 
-    const navItems = [
+const navItems = [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { id: 'inventory', label: 'Inventory', icon: Package },
         { id: 'orders', label: 'Orders', icon: ShoppingBag },
         { id: 'users', label: 'Users', icon: Users },
         { id: 'settings', label: 'Settings', icon: Settings },
+        { id: 'activity', label: 'Activity', icon: Activity },
     ];
 
     return (
@@ -153,8 +156,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     {activeTab === 'users' && (
                         <UsersView token={token} />
                     )}
-                    {activeTab === 'settings' && (
+{activeTab === 'settings' && (
                         <SettingsView token={token} onUpdate={onSettingsUpdate} />
+                    )}
+                    {activeTab === 'activity' && (
+                        <ActivityView token={token} />
                     )}
                     {activeTab === 'inventory' && (
                         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -379,6 +385,67 @@ const UsersView = ({ token }: { token: string }) => {
                         ))}
                     </tbody>
                 </table>
+            </div>
+        </div>
+    );
+};
+
+const ActivityView = ({ token }: { token: string }) => {
+    const [activities, setActivities] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const loadActivities = async () => {
+            try {
+                const data = await fetchUserActivity(token);
+                setActivities(data);
+            } catch (err) {
+                console.error("Failed to load activities", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        loadActivities();
+    }, [token]);
+
+    if (loading) return (
+        <div className="flex justify-center py-20">
+            <RotateCcw className="w-8 h-8 text-indigo-600 animate-spin" />
+        </div>
+    );
+
+    return (
+        <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
+            <div className="p-8 border-b border-gray-100">
+                <h3 className="text-xl font-black text-slate-900">User Activity Log</h3>
+                <p className="text-sm text-slate-500 font-medium">Recent user actions and system events</p>
+            </div>
+            <div className="divide-y divide-gray-100 max-h-[600px] overflow-y-auto">
+                {activities.length === 0 ? (
+                    <div className="p-8 text-center text-slate-500">No activity recorded yet</div>
+                ) : (
+                    activities.map((activity, idx) => (
+                        <div key={idx} className="p-6 hover:bg-slate-50 transition-colors">
+                            <div className="flex items-start gap-4">
+                                <div className="bg-indigo-100 p-2 rounded-lg">
+                                    <Activity className="w-5 h-5 text-indigo-600" />
+                                </div>
+                                <div className="flex-1">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="font-bold text-slate-900">{activity.username || 'Unknown User'}</span>
+                                        <span className="text-xs text-slate-400">
+                                            {new Date(activity.created_at).toLocaleString()}
+                                        </span>
+                                    </div>
+                                    <p className="text-sm text-slate-600 font-medium">{activity.action}</p>
+                                    {activity.details && (
+                                        <p className="text-xs text-slate-500 mt-1">{activity.details}</p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                )}
             </div>
         </div>
     );

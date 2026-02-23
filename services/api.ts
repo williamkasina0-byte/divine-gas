@@ -155,6 +155,24 @@ export const updateSettings = async (token: string, settings: any) => {
     return response.json();
 };
 
+export const fetchUserActivity = async (token: string) => {
+    const response = await fetch(`${API_URL}/admin/activity`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!response.ok) throw new Error("Failed to fetch user activity");
+    return response.json();
+};
+
+export const logUserActivity = async (userId: number, username: string, action: string, details: string) => {
+    const response = await fetch(`${API_URL}/activity/log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, username, action, details }),
+    });
+    if (!response.ok) throw new Error("Failed to log activity");
+    return response.json();
+};
+
 export async function payWithMpesa(phone: string, amount: number, orderId: string) {
     const response = await fetch(`${API_URL}/pay/mpesa`, {
         method: 'POST',

@@ -10,7 +10,8 @@
     "tunnel": "node tunnel.js",
     "start:all": "node start-all.js",
     "install:backend": "cd backend && npm install",
-    "start": "cd backend && npm start"
+    "start": "cd backend && npm start",
+    "vercel-build": "vite build"
   },
   "dependencies": {
     "lucide-react": "^0.564.0",

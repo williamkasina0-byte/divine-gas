@@ -193,12 +193,17 @@ app.post('/api/orders', async (req, res) => {
     try {
         const orderId = order.id || Math.random().toString(36).substr(2, 9);
         const userId = order.userId || null;
+        
+        // Handle both field name formats (customer_name or name)
+        const customerName = order.customer_name || order.name || 'Guest';
+        const phone = order.phone || '';
+        const address = order.address || '';
 
         await executeRun(db,
             isPostgres
                 ? 'INSERT INTO orders (id, user_id, customer_name, phone, address, total_amount, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)'
                 : 'INSERT INTO orders (id, user_id, customer_name, phone, address, total_amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [orderId, userId, order.name, order.phone, order.address, order.total, order.status, new Date().toISOString()]
+            [orderId, userId, customerName, phone, address, order.total, order.status || 'PENDING', new Date().toISOString()]
         );
 
         for (const item of order.items) {

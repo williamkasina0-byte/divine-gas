@@ -403,6 +403,11 @@ app.post('/api/generate-image', (req, res) => {
     res.json({ image: null });
 });
 
+// Health check endpoint for Vercel
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 app.listen(port, '0.0.0.0', () => {
     console.log(`Backend server running on port ${port} (Accessible on LAN)`);
 });

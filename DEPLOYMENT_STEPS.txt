@@ -1,0 +1,29 @@
+STEP 1: Create GitHub Repository
+- Go to github.com
+- Click + (top right) -> New repository  
+- Name: divine-gas
+- Click Create repository
+- Copy the URL shown
+
+STEP 2: Push Code (in Command Prompt)
+Run these commands one by one:
+
+cd c:\Users\user\Downloads\divine-gas
+git init
+git add .
+git commit -m "Fix API"
+git remote add origin https://github.com/YOURNAME/divine-gas.git
+git push -u origin main
+
+(Replace YOURNAME with your GitHub username)
+
+STEP 3: Deploy on Render
+- Go to dashboard.render.com
+- Click your divine-gas-backend service  
+- Click Deploy
+
+STEP 4: Test
+Open in browser:
+https://divine-gas-backend.onrender.com/api/health
+
+Expected: {"status":"ok","timestamp":"..."}

@@ -74,8 +74,8 @@ app.post('/api/auth/login', async (req, res) => {
     const db = await getDb();
 
     try {
-        const user = await executeGet(db, 
-            isPostgres ? 'SELECT * FROM users WHERE username = $1' : 'SELECT * FROM users WHERE username = ?', 
+        const user = await executeGet(db,
+            isPostgres ? 'SELECT * FROM users WHERE username = $1' : 'SELECT * FROM users WHERE username = ?',
             [username]
         );
         if (!user) return res.status(400).json({ error: "User not found" });
@@ -116,7 +116,7 @@ app.post('/api/auth/register', async (req, res) => {
 
         const hash = await bcrypt.hash(password, 10);
         const result = await executeRun(db,
-            isPostgres 
+            isPostgres
                 ? 'INSERT INTO users (username, password_hash, role, full_name, phone) VALUES ($1, $2, $3, $4, $5) RETURNING id'
                 : 'INSERT INTO users (username, password_hash, role, full_name, phone) VALUES (?, ?, ?, ?, ?)',
             [username, hash, 'customer', fullName, phone]
@@ -196,7 +196,7 @@ app.post('/api/orders', async (req, res) => {
     try {
         const orderId = order.id || Math.random().toString(36).substr(2, 9);
         const userId = order.userId || null;
-        
+
         // Handle both field name formats (customer_name or name)
         const customerName = order.customer_name || order.name || 'Guest';
         const phone = order.phone || '';
@@ -219,7 +219,7 @@ app.post('/api/orders', async (req, res) => {
                     : 'INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase, purchase_type) VALUES (?, ?, ?, ?, ?)',
                 [orderId, item.id, item.quantity, item.finalPrice, item.purchaseType]
             );
-            
+
             // Get product details for notification
             const product = await executeGet(db,
                 isPostgres ? 'SELECT * FROM products WHERE id = $1' : 'SELECT * FROM products WHERE id = ?',
@@ -245,12 +245,12 @@ app.post('/api/orders', async (req, res) => {
         };
 
         // Notify admin
-        notificationService.notifyAdminOfOrder(orderWithDetails).catch(err => 
+        notificationService.notifyAdminOfOrder(orderWithDetails).catch(err =>
             console.error('Failed to notify admin:', err)
         );
 
         // Notify customer
-        notificationService.notifyCustomerOfOrder(orderWithDetails).catch(err => 
+        notificationService.notifyCustomerOfOrder(orderWithDetails).catch(err =>
             console.error('Failed to notify customer:', err)
         );
 
@@ -328,6 +328,20 @@ app.get('/api/orders/my-orders', authenticateToken, async (req, res) => {
 
 // --- ADMIN MANAGEMENT ROUTES ---
 
+app.get('/api/admin/notifications/stream', (req, res, next) => {
+    // Custom authentication for SSE since passing Bearer header is hard in browser EventSource
+    const token = req.query.token;
+    if (!token) return res.sendStatus(401);
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err || user.role !== 'admin') return res.sendStatus(403);
+        req.user = user;
+        next();
+    });
+}, (req, res) => {
+    notificationService.addAdminClient(req, res);
+});
+
 app.get('/api/admin/stats', authenticateToken, async (req, res) => {
     const db = await getDb();
     if (req.user.role !== 'admin') return res.status(403).json({ error: "Forbidden" });
@@ -365,7 +379,7 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
 
     try {
         const users = await executeQuery(db,
-            isPostgres 
+            isPostgres
                 ? 'SELECT id, username, role, full_name, phone, created_at FROM users ORDER BY created_at DESC'
                 : 'SELECT id, username, role, full_name, phone, created_at FROM users ORDER BY created_at DESC'
         );
@@ -564,14 +578,14 @@ app.post('/api/admin/seed', async (req, res) => {
     const db = await getDb();
     try {
         // Seed Admin User
-        const adminExists = await executeGet(db, 
+        const adminExists = await executeGet(db,
             isPostgres ? 'SELECT * FROM users WHERE username = $1' : 'SELECT * FROM users WHERE username = ?',
             ['admin']
         );
         if (!adminExists) {
             const hash = await bcrypt.hash('admin123', 10);
             await executeRun(db,
-                isPostgres 
+                isPostgres
                     ? 'INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id'
                     : 'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
                 ['admin', hash, 'admin']
@@ -580,7 +594,7 @@ app.post('/api/admin/seed', async (req, res) => {
         }
 
         // Seed Initial Products
-        const productsCount = await executeGet(db, 
+        const productsCount = await executeGet(db,
             isPostgres ? 'SELECT COUNT(*) as count FROM products' : 'SELECT count(*) as count FROM products'
         );
         if (parseInt(productsCount?.count || 0) < 16) {
@@ -651,7 +665,7 @@ app.post('/api/admin/import-products', authenticateToken, async (req, res) => {
 
     try {
         const { products } = req.body;
-        
+
         if (!products || !Array.isArray(products)) {
             return res.status(400).json({ error: "Invalid products format. Expected array of products." });
         }

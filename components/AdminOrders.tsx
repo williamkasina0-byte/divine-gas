@@ -28,7 +28,51 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ token }) => {
 
     useEffect(() => {
         loadOrders();
-    }, [loadOrders]);
+
+        // Establish SSE Connection for real-time order notifications
+        const sseUrl = `/api/admin/notifications/stream?token=${token}`;
+        const eventSource = new EventSource(sseUrl);
+
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'new_order') {
+                    const newOrder = data.payload;
+                    // Add the new order to the top of the list
+                    setOrders(prev => [newOrder, ...prev]);
+
+                    // Show a simple browser alert / toast
+                    // In a bigger app, use react-hot-toast or similar.
+                    // For now, let's use a native browser Notification if permitted, or alert.
+                    if (Notification.permission === 'granted') {
+                        new Notification('New Order Received!', {
+                            body: `Order #${newOrder.id} from ${newOrder.name || newOrder.customer_name} for KES ${newOrder.total}`,
+                            icon: '/favicon.ico' // Ensure you have an icon
+                        });
+                    } else if (Notification.permission !== 'denied') {
+                        Notification.requestPermission().then(permission => {
+                            if (permission === 'granted') {
+                                new Notification('New Order Received!', {
+                                    body: `Order #${newOrder.id} from ${newOrder.name || newOrder.customer_name} for KES ${newOrder.total}`
+                                });
+                            }
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to parse SSE message", err);
+            }
+        };
+
+        eventSource.onerror = (err) => {
+            console.error("SSE connection error", err);
+            eventSource.close();
+        };
+
+        return () => {
+            eventSource.close();
+        };
+    }, [loadOrders, token]);
 
     const handleStatusChange = async (orderId: string, newStatus: string) => {
         setUpdatingId(orderId);

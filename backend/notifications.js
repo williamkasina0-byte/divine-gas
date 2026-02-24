@@ -1,91 +1,71 @@
-// SMS Notification Service
-// Supports multiple providers - configure your preferred one in environment variables
+/**
+ * Notification Service for Divine Gas
+ * Handles Server-Sent Events (SSE) for real-time admin notifications.
+ */
 
-const ADMIN_PHONE = process.env.ADMIN_PHONE || '0795556620';
+// Store active SSE connections
+const adminClients = new Set();
 
-// Provider configurations
-const SMS_PROVIDER = process.env.SMS_PROVIDER || 'africastalking'; // Options: 'africastalking', 'mock'
+/**
+ * Add a new admin client to the SSE connections
+ */
+function addAdminClient(req, res) {
+    // Keep connection alive
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
 
-// Africa's Talking Configuration
-const AFRICASTALKING_API_KEY = process.env.AFRICASTALKING_API_KEY || '';
-const AFRICASTALKING_USERNAME = process.env.AFRICASTALKING_USERNAME || 'sandbox';
+    // Flush headers to establish connection
+    res.flushHeaders();
 
-class NotificationService {
-    
-    // Send SMS using Africa's Talking
-    async sendSMSAfricaSTalking(phone, message) {
+    // Add to our clients list
+    adminClients.add(res);
+    console.log(`🔌 Admin SSE connected. Total connected: ${adminClients.size}`);
+
+    // Send initial connection success message (optional, but good for testing)
+    res.write(`data: ${JSON.stringify({ type: 'connected', message: 'SSE Connection Established' })}\n\n`);
+
+    // Handle client disconnect
+    req.on('close', () => {
+        adminClients.delete(res);
+        console.log(`🔌 Admin SSE disconnected. Total connected: ${adminClients.size}`);
+    });
+}
+
+/**
+ * Send an event to all connected admin clients
+ */
+function broadcastToAdmins(eventType, payload) {
+    const data = `data: ${JSON.stringify({ type: eventType, payload })}\n\n`;
+    for (const client of adminClients) {
         try {
-            const response = await fetch(`https://api.africastalking.com/version1/messaging`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Authorization': `Bearer ${AFRICASTALKING_API_KEY}`
-                },
-                body: new URLSearchParams({
-                    username: AFRICASTALKING_USERNAME,
-                    to: phone,
-                    message: message
-                })
-            });
-            
-            const data = await response.json();
-            console.log('SMS Response:', data);
-            return data;
+            client.write(data);
         } catch (error) {
-            console.error('Africa\'s Talking SMS Error:', error);
-            throw error;
+            console.error("Failed to write to SSE client:", error);
+            adminClients.delete(client); // Remove dead client
         }
-    }
-
-    // Send notification (provider-agnostic)
-    async sendSMS(phone, message) {
-        if (SMS_PROVIDER === 'africastalking' && AFRICASTALKING_API_KEY) {
-            return await this.sendSMSAfricaSTalking(phone, message);
-        }
-        
-        // Fallback: Log to console (for development/testing)
-        console.log(`[SMS to ${phone}]: ${message}`);
-        return { status: 'simulated', message: 'SMS logged to console' };
-    }
-
-    // Send order notification to admin
-    async notifyAdminOfOrder(order) {
-        const message = this.formatOrderMessage(order);
-        return await this.sendSMS(ADMIN_PHONE, message);
-    }
-
-    // Format order message for admin
-    formatOrderMessage(order) {
-        const itemsList = order.items.map(item => 
-            `${item.quantity}x ${item.brand} ${item.size} (${item.purchaseType})`
-        ).join(', ');
-
-        return `🔥 NEW ORDER #${order.id}
-        
-Customer: ${order.name}
-Phone: ${order.phone}
-Address: ${order.address}
-Items: ${itemsList}
-Total: KES ${order.total.toLocaleString()}
-Payment: ${order.paymentMethod || 'Pending'}
-        
-Time: ${new Date(order.created_at || Date.now()).toLocaleString()}`;
-    }
-
-    // Send order confirmation to customer
-    async notifyCustomerOfOrder(order) {
-        const message = `Thank you for your order #${order.id}!
-        
-Total: KES ${order.total.toLocaleString()}
-We will deliver to: ${order.address}
-        
-Track your order at divine-gas.vercel.app
-Questions? Call 0795556620
-        
-- Divine Gas Team`;
-        
-        return await this.sendSMS(order.phone, message);
     }
 }
 
-module.exports = new NotificationService();
+/**
+ * Notify admin of a new order
+ */
+async function notifyAdminOfOrder(order) {
+    console.log('🔔 New Order received! Broadcasting to admins...');
+    broadcastToAdmins('new_order', order);
+}
+
+/**
+ * Notify customer of order (stub)
+ */
+async function notifyCustomerOfOrder(order) {
+    // Currently a stubborn to avoid missing function errors.
+    // In the future this could be SMS/Email using a provider.
+    console.log(`Customer notification skipped: No SMS provider configured for order ${order.id}`);
+}
+
+module.exports = {
+    addAdminClient,
+    notifyAdminOfOrder,
+    notifyCustomerOfOrder
+};

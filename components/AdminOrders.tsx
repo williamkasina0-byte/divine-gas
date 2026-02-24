@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Package, Clock, CheckCircle2, AlertCircle, ShoppingBag, User, Phone, MapPin, ChevronDown, Loader2, Search } from 'lucide-react';
+import { Package, Clock, CheckCircle2, AlertCircle, ShoppingBag, User, Phone, MapPin, ChevronDown, Loader2, Search, Bell } from 'lucide-react';
 import { fetchAllOrders, updateOrderStatus } from '../services/api';
 import { OrderStatus } from '../types';
 
@@ -13,6 +13,22 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ token }) => {
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [updatingId, setUpdatingId] = useState<string | null>(null);
+    const [notificationPermission, setNotificationPermission] = useState<string>(
+        typeof Notification !== 'undefined' ? Notification.permission : 'default'
+    );
+
+    const requestNotificationPermission = async () => {
+        if (typeof Notification !== 'undefined') {
+            const permission = await Notification.requestPermission();
+            setNotificationPermission(permission);
+            if (permission === 'granted') {
+                new Notification('Notifications Enabled!', {
+                    body: 'You will now receive alerts for new orders.',
+                    icon: '/favicon.ico'
+                });
+            }
+        }
+    };
 
     const loadOrders = useCallback(async () => {
         try {
@@ -121,7 +137,18 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ token }) => {
                         </div>
                         <div>
                             <h1 className="text-2xl font-black text-slate-800 tracking-tight">Order Management</h1>
-                            <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">{orders.length} Total Orders</p>
+                            <div className="flex items-center gap-3 mt-1">
+                                <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">{orders.length} Total Orders</p>
+                                {notificationPermission === 'default' && (
+                                    <button
+                                        onClick={requestNotificationPermission}
+                                        className="text-[10px] font-black uppercase tracking-widest bg-orange-100 text-orange-600 px-3 py-1.5 rounded-lg hover:bg-orange-200 transition-all flex items-center gap-1.5"
+                                    >
+                                        <Bell className="w-3.5 h-3.5" />
+                                        Enable Alerts
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     </div>
 

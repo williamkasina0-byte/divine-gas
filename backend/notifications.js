@@ -32,6 +32,18 @@ function addAdminClient(req, res) {
     });
 }
 
+// Heartbeat to keep connections alive through proxies (every 30 seconds)
+setInterval(() => {
+    const heartbeatMsg = `data: ${JSON.stringify({ type: 'heartbeat' })}\n\n`;
+    for (const client of adminClients) {
+        try {
+            client.write(heartbeatMsg);
+        } catch (error) {
+            adminClients.delete(client);
+        }
+    }
+}, 30000);
+
 /**
  * Send an event to all connected admin clients
  */

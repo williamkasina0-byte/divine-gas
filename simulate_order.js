@@ -1,4 +1,4 @@
-const http = require('http');
+import http from 'http';
 
 const orderData = JSON.stringify({
     customer_name: 'Test Customer',

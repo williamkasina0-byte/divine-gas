@@ -14,7 +14,19 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       allowedHosts: true,
       proxy: {
-        '/api': 'http://localhost:3002'
+        '/api': {
+          target: 'http://localhost:3002',
+          changeOrigin: true,
+          // Ensure SSE isn't buffered by Vite
+          configure: (proxy, _options) => {
+            proxy.on('proxyReq', (proxyReq, req, _res) => {
+              if (req.url?.includes('/notifications/stream')) {
+                proxyReq.setHeader('Cache-Control', 'no-cache');
+                proxyReq.setHeader('Connection', 'keep-alive');
+              }
+            });
+          }
+        }
       }
     },
     plugins: [react()],

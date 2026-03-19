@@ -50,14 +50,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
 
     const validateForm = () => {
         if (mode === 'register') {
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
             if (!emailRegex.test(username)) {
-                setError("Please enter a valid email address");
+                setError("Please enter a valid, professional email address");
                 return false;
             }
 
-            if (fullName.trim().length < 3) {
-                setError("Full Name must be at least 3 characters");
+            const nameRegex = /^[a-zA-Z\s]{3,50}$/;
+            if (!nameRegex.test(fullName.trim())) {
+                setError("Full Name must be at least 3 characters (letters only)");
                 return false;
             }
 

@@ -106,19 +106,22 @@ app.post('/api/auth/register', async (req, res) => {
     const db = await getDb();
 
     // 1. Validate real details
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // More robust email regex (RFC 5322 compliant-ish)
+    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
     if (!username || !emailRegex.test(username)) {
-        return res.status(400).json({ error: "Please provide a valid email address as username" });
+        return res.status(400).json({ error: "Please provide a valid, professional email address" });
     }
 
-    if (!fullName || fullName.trim().length < 3) {
-        return res.status(400).json({ error: "Full Name must be at least 3 characters long" });
+    // Name validation: At least 3 chars, letters and spaces only
+    const nameRegex = /^[a-zA-Z\s]{3,50}$/;
+    if (!fullName || !nameRegex.test(fullName.trim())) {
+        return res.status(400).json({ error: "Please enter a valid Full Name (at least 3 characters, letters only)" });
     }
 
     // Kenyan phone numbers: 07..., 01..., 254..., or +254...
     const phoneRegex = /^(?:254|\+254|0)?(7|1)\d{8}$/;
     if (!phone || !phoneRegex.test(phone.replace(/\s/g, ''))) {
-        return res.status(400).json({ error: "Please provide a valid Kenyan phone number" });
+        return res.status(400).json({ error: "Please provide a valid Kenyan phone number (e.g., 0712345678)" });
     }
 
     // 2. Validate strong password

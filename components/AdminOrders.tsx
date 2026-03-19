@@ -49,11 +49,18 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ token }) => {
         const sseUrl = `/api/admin/notifications/stream?token=${token}`;
         const eventSource = new EventSource(sseUrl);
 
+        eventSource.onopen = () => {
+            console.log("SSE Connection opened successfully");
+        };
+
         eventSource.onmessage = (event) => {
+            console.log("Received SSE raw event:", event.data);
             try {
                 const data = JSON.parse(event.data);
+                console.log("Parsed SSE event:", data);
                 if (data.type === 'new_order') {
                     const newOrder = data.payload;
+                    console.log("Handling new order payload:", newOrder);
                     // Add the new order to the top of the list
                     setOrders(prev => [newOrder, ...prev]);
 

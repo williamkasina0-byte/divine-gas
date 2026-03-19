@@ -39,7 +39,7 @@ const req = http.request(options, (res) => {
 });
 
 req.on('error', (e) => {
-    console.error(`Problem with request: ${e.message}`);
+    console.error(`Problem with request:`, e);
 });
 
 req.write(orderData);

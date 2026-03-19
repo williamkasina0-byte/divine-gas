@@ -105,13 +105,37 @@ app.post('/api/auth/register', async (req, res) => {
     const { username, password, fullName, phone } = req.body;
     const db = await getDb();
 
+    // 1. Validate real details
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!username || !emailRegex.test(username)) {
+        return res.status(400).json({ error: "Please provide a valid email address as username" });
+    }
+
+    if (!fullName || fullName.trim().length < 3) {
+        return res.status(400).json({ error: "Full Name must be at least 3 characters long" });
+    }
+
+    // Kenyan phone numbers: 07..., 01..., 254..., or +254...
+    const phoneRegex = /^(?:254|\+254|0)?(7|1)\d{8}$/;
+    if (!phone || !phoneRegex.test(phone.replace(/\s/g, ''))) {
+        return res.status(400).json({ error: "Please provide a valid Kenyan phone number" });
+    }
+
+    // 2. Validate strong password
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    if (!password || !passwordRegex.test(password)) {
+        return res.status(400).json({ 
+            error: "Password is too weak. It must be at least 8 characters long, include uppercase, lowercase, a digit, and a special character." 
+        });
+    }
+
     try {
         const existingUser = await executeGet(db,
             isPostgres ? 'SELECT * FROM users WHERE username = $1' : 'SELECT * FROM users WHERE username = ?',
             [username]
         );
         if (existingUser) {
-            return res.status(400).json({ error: "Username already exists" });
+            return res.status(400).json({ error: "Username (Email) already exists" });
         }
 
         const hash = await bcrypt.hash(password, 10);
@@ -334,7 +358,10 @@ app.get('/api/admin/notifications/stream', (req, res, next) => {
     if (!token) return res.sendStatus(401);
 
     jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err || user.role !== 'admin') return res.sendStatus(403);
+        if (err || user.role !== 'admin') {
+            console.error("SSE Auth Rejected.", "Error:", err, "User:", user);
+            return res.sendStatus(403);
+        }
         req.user = user;
         next();
     });

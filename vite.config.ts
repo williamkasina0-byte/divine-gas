@@ -20,9 +20,18 @@ export default defineConfig(({ mode }) => {
           // Ensure SSE isn't buffered by Vite
           configure: (proxy, _options) => {
             proxy.on('proxyReq', (proxyReq, req, _res) => {
-              if (req.url?.includes('/notifications/stream')) {
+              if (req.url && req.url.includes('/notifications/stream')) {
                 proxyReq.setHeader('Cache-Control', 'no-cache');
                 proxyReq.setHeader('Connection', 'keep-alive');
+                proxyReq.setHeader('X-Accel-Buffering', 'no'); // Prevent buffering in Vite & Nginx
+              }
+            });
+
+            // Also listen to the proxy response and ensure headers are flush
+            proxy.on('proxyRes', (proxyRes, req, res) => {
+              if (req.url && req.url.includes('/notifications/stream')) {
+                proxyRes.headers['Cache-Control'] = 'no-cache';
+                proxyRes.headers['X-Accel-Buffering'] = 'no';
               }
             });
           }

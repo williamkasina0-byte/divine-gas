@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Loader2, User, Phone, Lock, LogIn, UserPlus } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Loader2, User, Phone, Lock, LogIn, UserPlus, Eye, EyeOff, Check, AlertCircle } from 'lucide-react';
 import { login, register } from '../services/api';
 
 interface AuthModalProps {
@@ -12,6 +12,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
     const [mode, setMode] = useState<'login' | 'register'>('login');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [showPassword, setShowPassword] = useState(false);
 
     // Form States
     const [username, setUsername] = useState('');
@@ -19,11 +20,68 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
     const [fullName, setFullName] = useState('');
     const [phone, setPhone] = useState('');
 
+    // Validation States
+    const [passwordStrength, setPasswordStrength] = useState(0);
+    const [passwordFeedback, setPasswordFeedback] = useState<string[]>([]);
+
+    useEffect(() => {
+        if (mode === 'register') {
+            const feedback = [];
+            let strength = 0;
+            if (password.length >= 8) strength += 25;
+            else feedback.push("At least 8 characters");
+            
+            if (/[A-Z]/.test(password)) strength += 25;
+            else feedback.push("Uppercase letter");
+            
+            if (/[a-z]/.test(password)) strength += 20;
+            if (/[0-9]/.test(password)) strength += 15;
+            else feedback.push("A number");
+            
+            if (/[@$!%*?&]/.test(password)) strength += 15;
+            else feedback.push("Special character (@$!%*?&)");
+
+            setPasswordStrength(strength);
+            setPasswordFeedback(feedback);
+        }
+    }, [password, mode]);
+
     if (!isOpen) return null;
+
+    const validateForm = () => {
+        if (mode === 'register') {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(username)) {
+                setError("Please enter a valid email address");
+                return false;
+            }
+
+            if (fullName.trim().length < 3) {
+                setError("Full Name must be at least 3 characters");
+                return false;
+            }
+
+            const phoneClean = phone.replace(/\s/g, '');
+            const phoneRegex = /^(?:254|\+254|0)?(7|1)\d{8}$/;
+            if (!phoneRegex.test(phoneClean)) {
+                setError("Please enter a valid Kenyan phone number");
+                return false;
+            }
+
+            if (passwordStrength < 100) {
+                setError("Please use a stronger password meeting all requirements");
+                return false;
+            }
+        }
+        return true;
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
+
+        if (!validateForm()) return;
+
         setLoading(true);
 
         try {
@@ -31,9 +89,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
             if (mode === 'login') {
                 data = await login(username, password);
             } else {
-                if (!fullName || !phone) {
-                    throw new Error("Full Name and Phone are required");
-                }
                 data = await register(username, password, fullName, phone);
             }
 
@@ -44,12 +99,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
             setPassword('');
             setFullName('');
             setPhone('');
+            setShowPassword(false);
         } catch (err: any) {
             console.error(err);
             setError(err.message || 'Authentication failed');
         } finally {
             setLoading(false);
         }
+    };
+
+    const getStrengthColor = () => {
+        if (passwordStrength < 40) return 'bg-red-500';
+        if (passwordStrength < 70) return 'bg-yellow-500';
+        if (passwordStrength < 100) return 'bg-blue-500';
+        return 'bg-green-500';
     };
 
     return (
@@ -98,24 +161,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
                 </div>
 
                 {/* Form */}
-                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
                     {error && (
-                        <div className="p-3 bg-red-50 text-red-600 text-xs font-bold rounded-xl border border-red-100 flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
+                        <div className="p-3 bg-red-50 text-red-600 text-xs font-bold rounded-xl border border-red-100 flex items-center gap-2 animate-shake">
+                            <AlertCircle className="w-4 h-4 shrink-0" />
                             {error}
                         </div>
                     )}
 
                     <div className="space-y-4">
                         <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Username</label>
+                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Email Address</label>
                             <div className="relative group">
                                 <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-orange-500 transition-colors" />
                                 <input
-                                    type="text"
+                                    type="email"
                                     value={username}
                                     onChange={e => setUsername(e.target.value)}
-                                    placeholder="Enter your username"
+                                    placeholder="your@email.com"
                                     className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 font-bold text-slate-700 transition-all placeholder:font-medium placeholder:text-slate-400"
                                     required
                                 />
@@ -161,14 +224,50 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
                             <div className="relative group">
                                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-orange-500 transition-colors" />
                                 <input
-                                    type="password"
+                                    type={showPassword ? "text" : "password"}
                                     value={password}
                                     onChange={e => setPassword(e.target.value)}
                                     placeholder="••••••••"
-                                    className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 font-bold text-slate-700 transition-all placeholder:font-medium placeholder:text-slate-400"
+                                    className="w-full pl-12 pr-12 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 font-bold text-slate-700 transition-all placeholder:font-medium placeholder:text-slate-400"
                                     required
                                 />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                                >
+                                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                </button>
                             </div>
+
+                            {mode === 'register' && password.length > 0 && (
+                                <div className="space-y-2 mt-2 animate-fade-in">
+                                    <div className="flex gap-1 h-1.5 rounded-full overflow-hidden bg-slate-100">
+                                        <div 
+                                            className={`h-full transition-all duration-500 ${getStrengthColor()}`}
+                                            style={{ width: `${passwordStrength}%` }}
+                                        ></div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-x-3 gap-y-1">
+                                        <div className="flex items-center gap-1">
+                                            {password.length >= 8 ? <Check className="w-3 h-3 text-green-500" /> : <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />}
+                                            <span className={`text-[10px] font-bold uppercase tracking-tight ${password.length >= 8 ? 'text-green-600' : 'text-slate-400'}`}>8+ Chars</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            {/[A-Z]/.test(password) ? <Check className="w-3 h-3 text-green-500" /> : <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />}
+                                            <span className={`text-[10px] font-bold uppercase tracking-tight ${/[A-Z]/.test(password) ? 'text-green-600' : 'text-slate-400'}`}>Uppercase</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            {/[0-9]/.test(password) ? <Check className="w-3 h-3 text-green-500" /> : <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />}
+                                            <span className={`text-[10px] font-bold uppercase tracking-tight ${/[0-9]/.test(password) ? 'text-green-600' : 'text-slate-400'}`}>Number</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            {/[@$!%*?&]/.test(password) ? <Check className="w-3 h-3 text-green-500" /> : <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />}
+                                            <span className={`text-[10px] font-bold uppercase tracking-tight ${/[@$!%*?&]/.test(password) ? 'text-green-600' : 'text-slate-400'}`}>Special</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -179,6 +278,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
                     >
                         {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : (mode === 'login' ? 'Login Now' : 'Create Account')}
                     </button>
+                    
+                    {mode === 'register' && (
+                        <p className="text-[10px] text-center text-slate-400 font-medium px-4">
+                            By creating an account, you agree to our terms of service and privacy policy for Divine Gas deliveries.
+                        </p>
+                    )}
                 </form>
             </div>
         </div>

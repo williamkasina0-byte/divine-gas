@@ -101,27 +101,73 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
+// Helper to check for disposable email addresses
+function isDisposableEmail(email) {
+    const disposableDomains = [
+        'mailinator.com', 'yopmail.com', 'guerrillamail.com', 'tempmail.com', 
+        'dispostable.com', 'getnada.com', '10minutemail.com', 'sharklasers.com'
+    ];
+    const domain = email.split('@')[1]?.toLowerCase();
+    return disposableDomains.includes(domain);
+}
+
+// Helper to check for "fake" names or repetitive patterns
+function isFakeName(name) {
+    const lowerName = name.toLowerCase().trim();
+    const fakeNames = ['test', 'guest', 'admin', 'user', 'asdf', 'qwerty', 'divine'];
+    
+    // Check for common fake names
+    if (fakeNames.some(f => lowerName.includes(f))) return true;
+    
+    // Check for repetitive characters (e.g., "aaaaa")
+    if (/(.)\1{4,}/.test(lowerName)) return true;
+    
+    // Check for at least two words (First and Last name)
+    const words = lowerName.split(/\s+/).filter(w => w.length > 0);
+    if (words.length < 2) return true;
+
+    return false;
+}
+
 app.post('/api/auth/register', async (req, res) => {
     const { username, password, fullName, phone } = req.body;
     const db = await getDb();
 
-    // 1. Validate real details
-    // More robust email regex (RFC 5322 compliant-ish)
+    // 1. Advanced Registration Validation (Real Data Recognition)
+    
+    // Email Validation
     const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
     if (!username || !emailRegex.test(username)) {
         return res.status(400).json({ error: "Please provide a valid, professional email address" });
     }
-
-    // Name validation: At least 3 chars, letters and spaces only
-    const nameRegex = /^[a-zA-Z\s]{3,50}$/;
-    if (!fullName || !nameRegex.test(fullName.trim())) {
-        return res.status(400).json({ error: "Please enter a valid Full Name (at least 3 characters, letters only)" });
+    if (isDisposableEmail(username)) {
+        return res.status(400).json({ error: "Temporary or disposable email addresses are not allowed" });
     }
 
-    // Kenyan phone numbers: 07..., 01..., 254..., or +254...
+    // Name Validation
+    if (!fullName || isFakeName(fullName)) {
+        return res.status(400).json({ 
+            error: "Please provide your real First and Last Name (letters only, no fake names)" 
+        });
+    }
+
+    // Phone Validation (Kenyan Carrier Prefixes)
+    const phoneClean = phone.replace(/\s/g, '');
     const phoneRegex = /^(?:254|\+254|0)?(7|1)\d{8}$/;
-    if (!phone || !phoneRegex.test(phone.replace(/\s/g, ''))) {
+    if (!phoneClean || !phoneRegex.test(phoneClean)) {
         return res.status(400).json({ error: "Please provide a valid Kenyan phone number (e.g., 0712345678)" });
+    }
+
+    // Strict Prefix Check
+    const localPhone = phoneClean.slice(-9); // Get last 9 digits (e.g., 712345678)
+    const prefix = localPhone.slice(0, 2); // e.g., 71
+    const validPrefixes = [
+        '70', '71', '72', '74', '75', '76', '79', '11', // Safaricom
+        '73', '78', '10',                               // Airtel
+        '77'                                            // Telkom
+    ];
+    if (!validPrefixes.includes(prefix)) {
+        return res.status(400).json({ error: "The phone number must belong to a recognized Kenyan carrier (Safaricom, Airtel, or Telkom)" });
     }
 
     // 2. Validate strong password
@@ -138,7 +184,7 @@ app.post('/api/auth/register', async (req, res) => {
             [username]
         );
         if (existingUser) {
-            return res.status(400).json({ error: "Username (Email) already exists" });
+            return res.status(400).json({ error: "An account with this email already exists" });
         }
 
         const hash = await bcrypt.hash(password, 10);

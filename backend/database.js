@@ -62,6 +62,7 @@ async function initializePostgresTables(pool) {
         role TEXT DEFAULT 'customer',
         full_name TEXT,
         phone TEXT,
+        is_verified BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -126,13 +127,12 @@ async function initializePostgresTables(pool) {
       )
     `);
 
-    // OTPs Table
+    // Email Verifications Table
     await client.query(`
-      CREATE TABLE IF NOT EXISTS otps (
-        phone TEXT PRIMARY KEY,
-        code TEXT NOT NULL,
-        expires_at TIMESTAMP NOT NULL,
-        verified BOOLEAN DEFAULT FALSE
+      CREATE TABLE IF NOT EXISTS email_verifications (
+        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        token TEXT NOT NULL,
+        expires_at TIMESTAMP NOT NULL
       )
     `);
   } finally {
@@ -150,6 +150,7 @@ async function initializeSQLiteTables(db) {
       role TEXT DEFAULT 'customer',
       full_name TEXT,
       phone TEXT,
+      is_verified INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -158,6 +159,7 @@ async function initializeSQLiteTables(db) {
   try { await db.exec(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'customer'`); } catch (e) { }
   try { await db.exec(`ALTER TABLE users ADD COLUMN full_name TEXT`); } catch (e) { }
   try { await db.exec(`ALTER TABLE users ADD COLUMN phone TEXT`); } catch (e) { }
+  try { await db.exec(`ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0`); } catch (e) { }
   try { await db.exec(`ALTER TABLE users ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`); } catch (e) { }
 
   // Products Table
@@ -225,13 +227,13 @@ async function initializeSQLiteTables(db) {
     )
   `);
 
-  // OTPs Table
+  // Email Verifications Table
   await db.exec(`
-    CREATE TABLE IF NOT EXISTS otps (
-      phone TEXT PRIMARY KEY,
-      code TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS email_verifications (
+      user_id INTEGER PRIMARY KEY,
+      token TEXT NOT NULL,
       expires_at DATETIME NOT NULL,
-      verified INTEGER DEFAULT 0
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
 }

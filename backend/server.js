@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
-const { getDb, initializeDatabase, logActivity } = require('./database');
+const { getDb, executeRun, executeGet, executeAll, isPostgres } = require('./database');
+const notificationService = require('./notifications');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
@@ -9,8 +11,8 @@ const app = express();
 const port = process.env.PORT || 3002;
 const JWT_SECRET = process.env.JWT_SECRET || 'divine-secret-key-change-this';
 
-// Check if using PostgreSQL
-const isPostgres = process.env.DATABASE_URL && process.env.NODE_ENV === 'production';
+// Check if using PostgreSQL (already imported from database.js)
+// const isPostgres = process.env.DATABASE_URL && process.env.NODE_ENV === 'production';
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -83,6 +85,14 @@ app.post('/api/auth/login', async (req, res) => {
         const validPassword = await bcrypt.compare(password, user.password_hash);
         if (!validPassword) return res.status(400).json({ error: "Invalid password" });
 
+        // Check if email is verified
+        if (user.is_verified === 0 || user.is_verified === false) {
+            return res.status(403).json({ 
+                error: "Your email address has not been verified yet. Please check your inbox for the verification link.",
+                unverified: true 
+            });
+        }
+
         const token = jwt.sign({ id: user.id, username: user.username, role: user.role || 'customer' }, JWT_SECRET, { expiresIn: '24h' });
 
         res.json({
@@ -151,65 +161,47 @@ function isFakeName(name) {
     return false;
 }
 
-// --- OTP ROUTE ---
-app.post('/api/auth/send-otp', async (req, res) => {
-    const { phone } = req.body;
-    if (!phone) return res.status(400).json({ error: "Phone number is required" });
-
-    // Validate phone format briefly
-    const phoneClean = phone.replace(/\s/g, '');
-    const phoneRegex = /^(?:254|\+254|0)?(7|1)\d{8}$/;
-    if (!phoneRegex.test(phoneClean)) {
-        return res.status(400).json({ error: "Invalid phone number format" });
-    }
+// --- EMAIL VERIFICATION ROUTE ---
+app.get('/api/auth/verify-email', async (req, res) => {
+    const { token } = req.query;
+    if (!token) return res.status(400).json({ error: "Verification token is required" });
 
     const db = await getDb();
-    const code = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit code
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
-
     try {
-        await executeRun(db,
-            isPostgres 
-                ? 'INSERT INTO otps (phone, code, expires_at, verified) VALUES ($1, $2, $3, $4) ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, verified = $4'
-                : 'INSERT OR REPLACE INTO otps (phone, code, expires_at, verified) VALUES (?, ?, ?, ?)',
-            [phoneClean, code, expiresAt, isPostgres ? false : 0]
+        const verification = await executeGet(db,
+            isPostgres ? 'SELECT * FROM email_verifications WHERE token = $1' : 'SELECT * FROM email_verifications WHERE token = ?',
+            [token]
         );
 
-        await notificationService.sendSmsOtp(phoneClean, code);
-        res.json({ success: true, message: "Verification code sent" });
-    } catch (e) {
-        console.error(e);
-        res.status(500).json({ error: "Failed to send OTP" });
-    }
-});
-
-app.post('/api/auth/verify-otp', async (req, res) => {
-    const { phone, code } = req.body;
-    if (!phone || !code) return res.status(400).json({ error: "Phone and code are required" });
-
-    const db = await getDb();
-    const phoneClean = phone.replace(/\s/g, '');
-
-    try {
-        const otpEntry = await executeGet(db,
-            isPostgres ? 'SELECT * FROM otps WHERE phone = $1' : 'SELECT * FROM otps WHERE phone = ?',
-            [phoneClean]
-        );
-
-        if (!otpEntry || otpEntry.code !== code) {
-            return res.status(400).json({ error: "Invalid verification code" });
+        if (!verification) {
+            return res.status(400).json({ error: "Invalid or expired verification token" });
         }
 
-        if (new Date(otpEntry.expires_at) < new Date()) {
-            return res.status(400).json({ error: "Verification code has expired" });
+        if (new Date(verification.expires_at) < new Date()) {
+            return res.status(400).json({ error: "Verification token has expired" });
         }
 
+        // Mark user as verified
         await executeRun(db,
-            isPostgres ? 'UPDATE otps SET verified = true WHERE phone = $1' : 'UPDATE otps SET verified = 1 WHERE phone = ?',
-            [phoneClean]
+            isPostgres ? 'UPDATE users SET is_verified = true WHERE id = $1' : 'UPDATE users SET is_verified = 1 WHERE id = ?',
+            [verification.user_id]
         );
 
-        res.json({ success: true, message: "Phone verified successfully" });
+        // Delete the token
+        await executeRun(db,
+            isPostgres ? 'DELETE FROM email_verifications WHERE user_id = $1' : 'DELETE FROM email_verifications WHERE user_id = ?',
+            [verification.user_id]
+        );
+
+        res.send(`
+            <html>
+                <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                    <h1 style="color: #f97316;">Success!</h1>
+                    <p>Your email has been verified. You can now log in to Divine Gas.</p>
+                    <a href="/" style="display: inline-block; padding: 10px 20px; background: #0f172a; color: white; border-radius: 8px; text-decoration: none;">Go to Login</a>
+                </body>
+            </html>
+        `);
     } catch (e) {
         console.error(e);
         res.status(500).json({ error: "Verification failed" });
@@ -253,22 +245,6 @@ app.post('/api/auth/register', async (req, res) => {
         return res.status(400).json({ error: "The phone number must belong to a recognized Kenyan carrier (Safaricom, Airtel, or Telkom)" });
     }
 
-    // 1.5 Verify Phone OTP
-    const otpEntry = await executeGet(db,
-        isPostgres ? 'SELECT * FROM otps WHERE phone = $1 AND verified = true' : 'SELECT * FROM otps WHERE phone = ? AND verified = 1',
-        [phoneClean]
-    );
-
-    if (!otpEntry) {
-        return res.status(400).json({ error: "Please verify your phone number first via SMS code." });
-    }
-    
-    // Check if verification is still fresh (e.g., within 1 hour)
-    const verificationTime = new Date(otpEntry.expires_at).getTime() + (50 * 60 * 1000); // Adding 50 mins buffer to 10 min expiry = 1 hour window
-    if (Date.now() > verificationTime) {
-        return res.status(400).json({ error: "Phone verification expired. Please request a new code." });
-    }
-
     // 2. Validate strong password
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
     if (!password || !passwordRegex.test(password)) {
@@ -287,25 +263,37 @@ app.post('/api/auth/register', async (req, res) => {
         }
 
         const hash = await bcrypt.hash(password, 10);
+        
+        // Use transaction for registration + verification token
         const result = await executeRun(db,
             isPostgres
-                ? 'INSERT INTO users (username, password_hash, role, full_name, phone) VALUES ($1, $2, $3, $4, $5) RETURNING id'
-                : 'INSERT INTO users (username, password_hash, role, full_name, phone) VALUES (?, ?, ?, ?, ?)',
-            [username, hash, 'customer', fullName, phone]
+                ? 'INSERT INTO users (username, password_hash, role, full_name, phone, is_verified) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id'
+                : 'INSERT INTO users (username, password_hash, role, full_name, phone, is_verified) VALUES (?, ?, ?, ?, ?, 0)',
+            [username, hash, 'customer', fullName, phone, false]
         );
 
         const userId = isPostgres ? result[0]?.id : result.lastID;
-        const token = jwt.sign({ id: userId, username, role: 'customer' }, JWT_SECRET, { expiresIn: '24h' });
+        
+        // Generate Verification Token
+        const verificationToken = crypto.randomBytes(32).toString('hex');
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
+
+        await executeRun(db,
+            isPostgres
+                ? 'INSERT INTO email_verifications (user_id, token, expires_at) VALUES ($1, $2, $3)'
+                : 'INSERT INTO email_verifications (user_id, token, expires_at) VALUES (?, ?, ?)',
+            [userId, verificationToken, expiresAt]
+        );
+
+        // Send Verification Email (Async)
+        notificationService.sendVerificationEmail({ username, fullName }, verificationToken).catch(err => {
+            console.error("Failed to send verification email:", err);
+        });
 
         res.json({
-            token,
-            user: {
-                id: userId,
-                username,
-                role: 'customer',
-                fullName,
-                phone
-            }
+            success: true,
+            message: "Account created! Please check your email to verify your account before logging in.",
+            email: username
         });
     } catch (e) {
         console.error(e);

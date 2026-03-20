@@ -77,30 +77,32 @@ async function notifyCustomerOfOrder(order) {
 }
 
 /**
- * Send an SMS OTP (Simulation/Africa's Talking Ready)
+ * Send a verification email (Simulation fallback)
  */
-async function sendSmsOtp(phone, code) {
-    const message = `Your Divine Gas verification code is: ${code}. Valid for 10 minutes.`;
+async function sendVerificationEmail(user, token) {
+    const verificationLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}?verify=${token}`;
+    const message = `Hello ${user.fullName || user.username},\n\nWelcome to Divine Gas! Please verify your email by clicking the link below:\n\n${verificationLink}\n\nThis link will expire in 24 hours.`;
     
     // 1. Log for verification during development
-    console.log(`[SMS SIMULATION] To: ${phone}, Message: ${message}`);
+    console.log(`\n📧 [EMAIL SIMULATION] To: ${user.username}`);
+    console.log(`Subject: Verify your Divine Gas Account`);
+    console.log(`Body:\n${message}\n`);
     
-    // 2. Integration hook (Future: Africa's Talking / Twilio)
-    // The user can easily swap this mock with a real provider call
+    // 2. Integration hook (Future: Nodemailer / Resend / SendGrid)
     try {
-        // Example Africa's Talking call:
-        // const options = { to: [phone], message: message };
-        // await sms.send(options);
+        // Example Nodemailer snippet:
+        // const transporter = nodemailer.createTransport({...});
+        // await transporter.sendMail({ from: '"Divine Gas" <noreply@divinegas.com>', to: user.username, ... });
     } catch (error) {
-        console.error("SMS Provider Error:", error);
+        console.error("Email Provider Error:", error);
     }
     
-    return true; // Return true as it's currently a simulation
+    return true;
 }
 
 module.exports = {
     addAdminClient,
     notifyAdminOfOrder,
     notifyCustomerOfOrder,
-    sendSmsOtp
+    sendVerificationEmail
 };

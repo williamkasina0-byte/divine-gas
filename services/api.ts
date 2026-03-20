@@ -26,6 +26,32 @@ export async function register(username: string, password: string, fullName: str
     return response.json();
 }
 
+export async function sendOtp(phone: string) {
+    const response = await fetch(`${API_URL}/auth/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to send OTP');
+    }
+    return response.json();
+}
+
+export async function verifyOtp(phone: string, code: string) {
+    const response = await fetch(`${API_URL}/auth/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, code }),
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Verification failed');
+    }
+    return response.json();
+}
+
 export async function fetchProducts() {
     const response = await fetch(`${API_URL}/products`);
     if (!response.ok) throw new Error('Failed to fetch products');

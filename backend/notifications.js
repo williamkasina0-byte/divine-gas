@@ -76,8 +76,31 @@ async function notifyCustomerOfOrder(order) {
     console.log(`Customer notification skipped: No SMS provider configured for order ${order.id}`);
 }
 
+/**
+ * Send an SMS OTP (Simulation/Africa's Talking Ready)
+ */
+async function sendSmsOtp(phone, code) {
+    const message = `Your Divine Gas verification code is: ${code}. Valid for 10 minutes.`;
+    
+    // 1. Log for verification during development
+    console.log(`[SMS SIMULATION] To: ${phone}, Message: ${message}`);
+    
+    // 2. Integration hook (Future: Africa's Talking / Twilio)
+    // The user can easily swap this mock with a real provider call
+    try {
+        // Example Africa's Talking call:
+        // const options = { to: [phone], message: message };
+        // await sms.send(options);
+    } catch (error) {
+        console.error("SMS Provider Error:", error);
+    }
+    
+    return true; // Return true as it's currently a simulation
+}
+
 module.exports = {
     addAdminClient,
     notifyAdminOfOrder,
-    notifyCustomerOfOrder
+    notifyCustomerOfOrder,
+    sendSmsOtp
 };

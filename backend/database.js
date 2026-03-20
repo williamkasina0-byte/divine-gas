@@ -125,6 +125,16 @@ async function initializePostgresTables(pool) {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // OTPs Table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS otps (
+        phone TEXT PRIMARY KEY,
+        code TEXT NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        verified BOOLEAN DEFAULT FALSE
+      )
+    `);
   } finally {
     client.release();
   }
@@ -212,6 +222,16 @@ async function initializeSQLiteTables(db) {
       ip_address TEXT,
       user_agent TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // OTPs Table
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS otps (
+      phone TEXT PRIMARY KEY,
+      code TEXT NOT NULL,
+      expires_at DATETIME NOT NULL,
+      verified INTEGER DEFAULT 0
     )
   `);
 }

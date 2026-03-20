@@ -105,10 +105,32 @@ app.post('/api/auth/login', async (req, res) => {
 function isDisposableEmail(email) {
     const disposableDomains = [
         'mailinator.com', 'yopmail.com', 'guerrillamail.com', 'tempmail.com', 
-        'dispostable.com', 'getnada.com', '10minutemail.com', 'sharklasers.com'
+        'dispostable.com', 'getnada.com', '10minutemail.com', 'sharklasers.com',
+        'trashmail.com', 'maildrop.cc', 'temp-mail.org', 'fakeinbox.com',
+        'burnermiler.com', 'mintemail.com', 'mailexpire.com', 'email.com',
+        'asdf.com', 'test.com', 'example.com'
     ];
     const domain = email.split('@')[1]?.toLowerCase();
     return disposableDomains.includes(domain);
+}
+
+function isRealEmail(email) {
+    if (!email || typeof email !== 'string') return false;
+    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+    if (!emailRegex.test(email)) return false;
+
+    if (isDisposableEmail(email)) return false;
+
+    const [localPart, domain] = email.split('@');
+    
+    // Check for repetitive chars in local part
+    if (/(.)\1{4,}/.test(localPart)) return false;
+
+    // Check for common typo domains
+    const typos = ['gamil.com', 'gmial.com', 'yaho.com', 'hotmial.com', 'outlok.com'];
+    if (typos.includes(domain.toLowerCase())) return false;
+
+    return true;
 }
 
 // Helper to check for "fake" names or repetitive patterns
@@ -129,6 +151,71 @@ function isFakeName(name) {
     return false;
 }
 
+// --- OTP ROUTE ---
+app.post('/api/auth/send-otp', async (req, res) => {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: "Phone number is required" });
+
+    // Validate phone format briefly
+    const phoneClean = phone.replace(/\s/g, '');
+    const phoneRegex = /^(?:254|\+254|0)?(7|1)\d{8}$/;
+    if (!phoneRegex.test(phoneClean)) {
+        return res.status(400).json({ error: "Invalid phone number format" });
+    }
+
+    const db = await getDb();
+    const code = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit code
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
+
+    try {
+        await executeRun(db,
+            isPostgres 
+                ? 'INSERT INTO otps (phone, code, expires_at, verified) VALUES ($1, $2, $3, $4) ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, verified = $4'
+                : 'INSERT OR REPLACE INTO otps (phone, code, expires_at, verified) VALUES (?, ?, ?, ?)',
+            [phoneClean, code, expiresAt, isPostgres ? false : 0]
+        );
+
+        await notificationService.sendSmsOtp(phoneClean, code);
+        res.json({ success: true, message: "Verification code sent" });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: "Failed to send OTP" });
+    }
+});
+
+app.post('/api/auth/verify-otp', async (req, res) => {
+    const { phone, code } = req.body;
+    if (!phone || !code) return res.status(400).json({ error: "Phone and code are required" });
+
+    const db = await getDb();
+    const phoneClean = phone.replace(/\s/g, '');
+
+    try {
+        const otpEntry = await executeGet(db,
+            isPostgres ? 'SELECT * FROM otps WHERE phone = $1' : 'SELECT * FROM otps WHERE phone = ?',
+            [phoneClean]
+        );
+
+        if (!otpEntry || otpEntry.code !== code) {
+            return res.status(400).json({ error: "Invalid verification code" });
+        }
+
+        if (new Date(otpEntry.expires_at) < new Date()) {
+            return res.status(400).json({ error: "Verification code has expired" });
+        }
+
+        await executeRun(db,
+            isPostgres ? 'UPDATE otps SET verified = true WHERE phone = $1' : 'UPDATE otps SET verified = 1 WHERE phone = ?',
+            [phoneClean]
+        );
+
+        res.json({ success: true, message: "Phone verified successfully" });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: "Verification failed" });
+    }
+});
+
 app.post('/api/auth/register', async (req, res) => {
     const { username, password, fullName, phone } = req.body;
     const db = await getDb();
@@ -136,12 +223,8 @@ app.post('/api/auth/register', async (req, res) => {
     // 1. Advanced Registration Validation (Real Data Recognition)
     
     // Email Validation
-    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
-    if (!username || !emailRegex.test(username)) {
+    if (!username || !isRealEmail(username)) {
         return res.status(400).json({ error: "Please provide a valid, professional email address" });
-    }
-    if (isDisposableEmail(username)) {
-        return res.status(400).json({ error: "Temporary or disposable email addresses are not allowed" });
     }
 
     // Name Validation
@@ -168,6 +251,22 @@ app.post('/api/auth/register', async (req, res) => {
     ];
     if (!validPrefixes.includes(prefix)) {
         return res.status(400).json({ error: "The phone number must belong to a recognized Kenyan carrier (Safaricom, Airtel, or Telkom)" });
+    }
+
+    // 1.5 Verify Phone OTP
+    const otpEntry = await executeGet(db,
+        isPostgres ? 'SELECT * FROM otps WHERE phone = $1 AND verified = true' : 'SELECT * FROM otps WHERE phone = ? AND verified = 1',
+        [phoneClean]
+    );
+
+    if (!otpEntry) {
+        return res.status(400).json({ error: "Please verify your phone number first via SMS code." });
+    }
+    
+    // Check if verification is still fresh (e.g., within 1 hour)
+    const verificationTime = new Date(otpEntry.expires_at).getTime() + (50 * 60 * 1000); // Adding 50 mins buffer to 10 min expiry = 1 hour window
+    if (Date.now() > verificationTime) {
+        return res.status(400).json({ error: "Phone verification expired. Please request a new code." });
     }
 
     // 2. Validate strong password

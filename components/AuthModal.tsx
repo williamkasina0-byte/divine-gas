@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Loader2, User, Phone, Lock, LogIn, UserPlus, Eye, EyeOff, CheckCircle2, AlertCircle, Mail, ArrowRight, Shield } from 'lucide-react';
-import { login, register } from '../services/api';
+import { login, register, sendOtp, verifyOtp } from '../services/api';
 
 interface AuthModalProps {
     isOpen: boolean;
@@ -80,13 +80,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
         if (mode === 'register') {
             const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
             if (!emailRegex.test(username)) {
-                setError("Please enter a valid, professional email address");
+                setError("Please enter a valid email address");
                 return false;
             }
 
-            const disposable = ['mailinator.com', 'yopmail.com', 'tempmail.com', 'guerrillamail.com'];
-            if (disposable.some(d => username.toLowerCase().endsWith(d))) {
+            const [localPart, domain] = username.split('@');
+            const disposable = [
+                'mailinator.com', 'yopmail.com', 'tempmail.com', 'guerrillamail.com', 
+                'dispostable.com', 'getnada.com', '10minutemail.com', 'sharklasers.com',
+                'trashmail.com', 'maildrop.cc', 'temp-mail.org', 'fakeinbox.com'
+            ];
+            if (disposable.includes(domain.toLowerCase())) {
                 setError("Disposable email addresses are not allowed for security");
+                return false;
+            }
+
+            if (/(.)\1{4,}/.test(localPart)) {
+                setError("Please use a real, professional email address");
+                return false;
+            }
+
+            const typos = ['gamil.com', 'gmial.com', 'yaho.com', 'hotmial.com', 'outlok.com'];
+            if (typos.includes(domain.toLowerCase())) {
+                setError(`Did you mean ${domain.includes('gamil') || domain.includes('gmial') ? 'gmail.com' : domain.includes('yaho') ? 'yahoo.com' : 'the correct domain'}?`);
                 return false;
             }
 
@@ -122,10 +138,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
         if (!validateForm()) return;
         setIsVerifying(true);
         setError(null);
-        setTimeout(() => {
-            setIsVerifying(false);
+        try {
+            const phoneClean = phone.replace(/\s/g, '');
+            await sendOtp(phoneClean);
             setRegistrationStep(2);
-        }, 1500);
+        } catch (err: any) {
+            setError(err.message || "Failed to send verification code. Please try again.");
+        } finally {
+            setIsVerifying(false);
+        }
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -138,8 +159,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
         }
 
         if (mode === 'register' && registrationStep === 2) {
-            if (verificationCode !== '123456') {
-                setError("Invalid verification code. Please enter 123456 for demo.");
+            if (!verificationCode || verificationCode.length < 6) {
+                setError("Please enter the 6-digit code sent to your phone.");
+                return;
+            }
+            
+            setLoading(true);
+            try {
+                const phoneClean = phone.replace(/\s/g, '');
+                await verifyOtp(phoneClean, verificationCode);
+                // OTP verified successfully, now proceed to register
+            } catch (err: any) {
+                setError(err.message || "Invalid or expired verification code.");
+                setLoading(false);
                 return;
             }
         }
@@ -208,7 +240,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
                             </div>
                             <div>
                                 <h3 className="text-lg font-bold text-slate-800">Verify Your Identity</h3>
-                                <p className="text-sm text-slate-500 mt-1">We've recognized your details as legitimate. Please enter the 6-digit code sent to your phone to finish.</p>
+                                <p className="text-sm text-slate-500 mt-1">We've sent a 6-digit code to <strong>{phone}</strong>. Please enter it below to complete your registration.</p>
                             </div>
                             <div className="relative max-w-[200px] mx-auto">
                                 <input
